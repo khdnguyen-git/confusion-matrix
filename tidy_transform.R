@@ -1,4 +1,3 @@
-
 # Load
 if (!require("pacman")) {
   install.packages("pacman")
@@ -296,20 +295,5 @@ redo_tidyverse <-  raw_data %>%
          spec_calc_world_ppv = tn_calc_world_ppv / (tn_calc_world_ppv + fp_reclaim_ppv),
          ppv_calc_world_ppv = tp_reclaim_ppv / (tp_reclaim_ppv + fp_reclaim_ppv),
          npv_calc_world_ppv = tn_calc_world_ppv / (tn_calc_world_ppv + fn_calc_world_ppv))
-  
-  
-  
-  
-  
-  
-  
-
-
-export(x, "output/me.xlsx")
-export(redo, "output/brian.xlsx")
-  
-
-
-x <- 
 
 
