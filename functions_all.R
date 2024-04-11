@@ -1,10 +1,15 @@
-# Load libray ####
+# Load libraries
 if (require(pacman)){
   install.packages("pacman")
   library(pacman)
 }
 
-pacman::p_load(tidyverse, rio, here, janitor, stringr, rlang)
+pacman::p_load(tidyverse, 
+               rio, 
+               here, 
+               janitor, 
+               stringr, 
+               rlang)
 
 
 # Import raw data and rename for clarity ####
