@@ -76,6 +76,8 @@ Output variable names include suffixes `calc_`, `reclaim_`, followed by prevalen
     - For readability and simplicity sake, use the format: "Abbreviated condition name - Condition name".
 
 # Note
+- `tidy_transform.R` was the precursor for these functions. It transformed Dr. Barger's R scripts (with missing percentages 0, 100, ppv) to the tidyverse language.
 - **Function 1x** run on the results of **Function 1**. It is not included in the master functions `master_function_asd` or `master_function_any`
 - The combined dataset `adjusted_result_{cond}_{p}`, when available, should be considered the "final" dataset as it includes all combined adjusted values.
 - The code uses the `tidyverse` package for data manipulation
+
