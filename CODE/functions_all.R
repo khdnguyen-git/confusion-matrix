@@ -29,34 +29,6 @@ raw_slice <- slice_head(raw_data, n = 10)
 raw_slice_0miss <- raw_slice %>% 
   mutate(n_positive_miss = 0)
 
-# raw2 <- tibble(tp = c(1,2,3,4),
-#                tn = c(1,2,3,4),
-#                fp = c(1,2,3,4),
-#                fn = c(1,2,3,4),
-#                n = c(1,2,3,4),
-#                n_positive_miss = c(0,0,1,2),
-#                sens = c(1,2,3,4),
-#                spec = c(1,2,3,4),
-#                ppv = c(1,2,3,4),
-#                npv = c(1,2,3,4),
-#                asd_prev_natl = c(.2,.2,.2,.2),
-#                asd_prev_cdc = c(2,2,2,2),
-#                asd_prev_world = c(2,2,2,2))
-
-# Random data generator
-#rand <- import(here("input", "rand.xlsx")) # This was created in Excel 
-
-
-#random_function <- function(df, miss_p){
-  #df %>% 
-    #mutate(across(everything(), ~ifelse(runif(n()) < miss_p, NA, .)))
-#}
-
-
-#na.test(rand_with_na)
-
-#rand_with_na <- random_function(rand, miss_p = 0.3)
-
 # Architecture ####
 
 # Function should do:
