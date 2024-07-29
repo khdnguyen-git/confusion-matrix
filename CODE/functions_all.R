@@ -448,6 +448,7 @@ master_function_any <- function(df) {
     "AD - Adjustment Disorder",
     "ADHD - Attention Deficit Hyperactivity Disorder",
     "ADD - Attention Deficit Disorder",
+    "ASD - Autism Spectrum Disorder",
     "ASPD - Antisocial Personality Disorder",
     "AVPD - Avoidant Personality Disorder",
     "BED - Binge Eating Disorder",
@@ -471,9 +472,8 @@ master_function_any <- function(df) {
     "SOAD - Social Anxiety Disorder",
     "SPD - Schizoid Personality Disorder"
   )
-  
+  # Start ####
   choice <- menu(conditions, title = "Select a condition: ")
-  
   if(choice == 0) {
     cat("Please select a valid input")
   }
@@ -481,18 +481,16 @@ master_function_any <- function(df) {
     cat("Condition for analysis: ", conditions[choice] , "\n")
     cond <- word(conditions[choice], 1)
   }
-
   # Check for prev in df
   if (!"prev" %in% colnames(df)) {
     repeat { 
-    prev_input <- as.numeric(readli       ne(prompt = "Enter the condition's prevalence (0 to 1): "))
+    prev_input <- as.numeric(readline(prompt = "Enter the condition's prevalence (0 to 1): "))
     
     if(prev_input >= 0 && prev_input <= 1 && !is.na(prev_input)) {
       df$prev <-  prev_input
       prev <- prev_input 
       break
     }
-    
     else{
       cat("Invalid prevalence. Please enter a number between 0 to 1 \n")
       }
@@ -501,50 +499,60 @@ master_function_any <- function(df) {
   else{
     prev <- df$prev 
   }
-  
   # Function 1
-  cleaned_data <- recalculated_basic(df)
-  
-  
-  # Function 2a
-  if(any(cleaned_data$n_positive_miss == 0)){
-    cat("Found no missed cases -> Output dataset doesn't have reclaim \n")
-    recalculated_result <- recalculated_no_reclaim_any_prev(cleaned_data, prev = prev)
-    recalculated_result_name <- paste0("recalculated_result_no_miss_", cond)
-    assign(recalculated_result_name, recalculated_result, env = .GlobalEnv)
-  }
-  
-  else{
-    cat("Found missed cases -> Output dataset will have reclaims")
+  cleaned_data <- recalculated_missing_data(df)
+  # Divide into 2 datasets based on n_positive_miss
+  no_miss_data <- subset(cleaned_data, n_positive_miss == 0)
+  miss_data <- subset(cleaned_data, n_positive_miss != 0)
+  # Function 2a: Apply to rows with n_positive_miss == 0
+  if (nrow(no_miss_data) > 0) {
+    cat("Found rows with no missed cases -> Running step 2a... \n")
     
+    recalculated_result_no_miss <- recalculated_no_reclaim_any_prev(no_miss_data, prev = prev)
+    recalculated_result_no_miss_name <- paste0("recalculated_result_no_miss_", cond)
+    assign(recalculated_result_no_miss_name, recalculated_result_no_miss, envir = .GlobalEnv)
+  }
+  # Function 2b: Apply to rows with n_positive_miss != 0
+  if (nrow(miss_data) > 0) {
+    cat("Found rows with missed cases -> Running step 2b... \n")
     if (!"p" %in% colnames(df)) {
       repeat{
-      p_input <- as.numeric(readline(prompt = "Enter the missing percentage (0 to 100): "))
-
-      if (p_input >= 0 && p_input <= 100 && !is.na(p_input)) {
-        df$p_missed <-  p_input
-        p <- p_input
-        break
+        p_input <- as.numeric(readline(prompt = "Enter the missing percentage (0 to 100): "))
+        if (p_input >= 0 && p_input <= 100 && !is.na(p_input)) {
+          df$p_missed <-  p_input
+          p <- p_input
+          break
         }
-        
-      else{
-        cat("Invalid percentage. Please enter a number between 0 to 100 \n")
+        else{
+          cat("Invalid percentage. Please enter a number between 0 to 100 \n")
         }
       }  
     }
-      
+    
     else{
       p <- df$p 
     } 
-    
-    recalculated_result <- recalculated_reclaim_any_prev(cleaned_data, p = p, prev = prev)
-    recalculated_result_name <- paste0("recalculated_result_",cond, "_", p)
-    assign(recalculated_result_name, recalculated_result, env = .GlobalEnv)
+    recalculated_result_miss <- recalculated_reclaim_any_prev(miss_data, p = p, prev = prev)
+    recalculated_result_name_miss <- paste0("recalculated_result_miss_", cond, "_", p)
+    assign(recalculated_result_name_miss, recalculated_result_miss, envir = .GlobalEnv)
   }
-  
-  cat("The output dataset is: ", recalculated_result_name)
+  # Merge back results from 2a and 2b
+  if (nrow(no_miss_data) > 0 && nrow(miss_data) > 0) {
+    recalculated_result <- bind_rows(recalculated_result_no_miss, recalculated_result_miss)
+    recalculated_result_name <- paste0("recalculated_result_", cond, "_", p)
+    assign(recalculated_result_name, recalculated_result, envir = .GlobalEnv)
+    cat("The output dataset is: ", recalculated_result_name, "\n")
+  } 
+  else if (nrow(no_miss_data) > 0) {
+    cat("Only dataset without missed cases was found. \n")
+  } 
+  else if (nrow(miss_data) > 0) {
+    cat("Only dataset with missed cases was found. \n")
+  } 
+  else {
+    cat("No data to process.\n")
+  }
 }
-
 
 # Testing ####
 master_function_any(raw_slice)
