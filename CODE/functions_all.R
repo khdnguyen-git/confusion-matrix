@@ -24,11 +24,6 @@ raw_data <- import(here("input", "PublicationFileFinal 35.csv")) %>%
          "asd_prev_rep" = "report_prev",
          "asd_prev_world" = "glob_prev")
 
-# Making testing datasets ####
-raw_slice <- slice_head(raw_data, n = 10)
-raw_slice_0miss <- raw_slice %>% 
-  mutate(n_positive_miss = 0)
-
 # Architecture ####
 
 # Function should do:
@@ -50,7 +45,7 @@ raw_slice_0miss <- raw_slice %>%
 # Input: original dataframe
 # Output: tp_rep, fn_rep, fp_rep, tn_rep
 
-recalculated_basic <-  function(df){
+recalculated_missing_data <-  function(df){
   zero_cols <- c("tp","tn","fp","fn","n","n_positive_miss")
   
   calculated_df <- df %>% 
@@ -123,10 +118,10 @@ recalculated_basic <-  function(df){
     mutate(asd_rep = tp + fn_rep) 
 }  
 
-test_df <- recalculated_basic(raw_data)
+test_df <- recalculated_missing_data(raw_data)
 export(test_df, "test_df.xlsx")
 
-# Function 1.x: Pairwise subtraction for validation ####
+# Function 1x: Pairwise subtraction for validation ####
 # Input: recalculated df from Function 1
 # Output: .txt file with console messages about which studies to check
 # Note: not usable for reclaimn input
@@ -142,7 +137,7 @@ thresholds <- list(
   npv = 0
 )
 
-compare_columns <- function(df, thresholds, console_output) { # Threshold list needs to be made separately
+validation <- function(df, thresholds, console_output) { # Threshold list needs to be made separately
   
   sink(console_output, append = FALSE) # Starting now, every output messages will be exported to a .txt file
   
@@ -208,10 +203,8 @@ compare_columns <- function(df, thresholds, console_output) { # Threshold list n
 }
 
 output_filename <- "test.txt"
-result <- compare_columns(test_df, thresholds, output_filename)
-
-
-
+validation_result <- validation(test_df, thresholds, output_filename)
+export(validation_result, "result.xlsx")
 
 
 # Function 2a_a: Epi adjustment for when no cases are missing from screened (n_positive_miss = 0) ####
@@ -219,7 +212,7 @@ result <- compare_columns(test_df, thresholds, output_filename)
 # Input: Function 1's resulted df
 # Output: sens, spec, ppv, npv using national, cdc, world prevalence
    
-recalculated_no_reclaim <-  function(df){
+adjust_no_missed_asd <-  function(df){
     df %>% 
     mutate(asd_exp_natl = as.integer(n * asd_prev_natl),
            asd_exp_cdc = as.integer(n * asd_prev_cdc),
@@ -263,41 +256,15 @@ recalculated_no_reclaim <-  function(df){
            ppv_calc_world = tp_rep / (tp_rep + fp_rep),
            npv_calc_world = tn_calc_world / (tn_calc_world + fn_calc_world))
 }
-
-# Function 2a_b: Epi adjustment for when no cases are missing from screened (n_positive_miss = 0) ####
-# For any condition, any prevalence
-# Input: Function 1's resulted df
-# Output: sens, spec, ppv, npv using user-defined prevalence
-
-recalculated_no_reclaim_any_prev <-  function(df, prev){
-  df %>% 
-    mutate(expected = as.integer(n * prev)) %>% 
-    
-    mutate(difference = expected - (tp + fn_rep),
-           difference_multiplier = ifelse(difference > 0, 1, 
-                                          ifelse(difference < 0, 0, difference))) %>% 
-    
-    mutate(fn_calc = fn_rep + ifelse(difference > 0, difference, 0),
-           tn_calc = tn_rep - (difference * difference_multiplier)) %>% 
-    
-    
-    # Diagnostic accuracy - any prevalence
-    mutate(sens_calc = tp_rep / (tp_rep + fn_calc),
-           spec_calc = tn_calc / (tn_calc + fp_rep),
-           ppv_calc = tp_rep / (tp_rep + fp_rep),
-           npv_calc = tn_calc / (tn_calc + fn_calc))  
-
-}
-
 # Function 2b_a: Epi adjustment for when there are kids missed from screened (n_positive_miss != 0) ####
 # For asd, fixed prevalence values
 # Input: Function 1's resulted df
 # Output: sens, spec, ppv, npv using national, cdc, world prevalence
 
-recalculated_reclaim <- function(df, p){
+adjust_missed_asd <- function(df, p){
   df %>% 
-  mutate(!!paste0("tp_reclaim_", p, "%") := tp_rep + (p/100) * n_positive_miss,             
-         !!paste0("fp_reclaim_", p, "%") := fp_rep + (1- (p/100)) * n_positive_miss) %>% 
+  mutate(!!paste0("tp_reclaim_", p, "%") := tp_rep + (p/20) * n_positive_miss,             
+         !!paste0("fp_reclaim_", p, "%") := fp_rep + (1- (p/20)) * n_positive_miss) %>% 
     
   mutate(!!paste0("asd_exp_natl_", p, "%") := as.integer((n + n_positive_miss) * asd_prev_natl),
          !!paste0("asd_exp_cdc_", p, "%") := as.integer((n + n_positive_miss) * asd_prev_cdc),
@@ -348,20 +315,106 @@ recalculated_reclaim <- function(df, p){
          !!paste0("npv_calc_world_", p, "%") := !!sym(paste0("tn_calc_world_", p, "%")) / (!!sym(paste0("tn_calc_world_", p, "%")) + !!sym(paste0("fn_calc_world_", p, "%")))) 
 }
 
+# Wrapper (master) function for asd dataset ####
+# It will output a dataset, so just input datasets and p% and run
+master_function_asd <- function(df) {
+  cleaned_data <- recalculated_missing_data(df)
+  
+  # Divide into 2 datasets based on n_positive_miss
+  no_miss_data <- subset(cleaned_data, n_positive_miss == 0)
+  miss_data <- subset(cleaned_data, n_positive_miss != 0)
+  
+  # Function 2a: Apply to rows with n_positive_miss == 0
+  if (nrow(no_miss_data) > 0) {
+    cat("Found rows with no missed cases -> Running adjustment without reclaim... \n")
+    
+    adjusted_result_no_miss <- adjust_no_missed_asd(no_miss_data)
+    adjusted_result_no_miss_name <- "adjusted_result_no_miss_asd"
+    assign(adjusted_result_no_miss_name, adjusted_result_no_miss, envir = .GlobalEnv)
+  }
+  
+  # Function 2b: Apply to rows with n_positive_miss != 0
+  if (nrow(miss_data) > 0) {
+    cat("Found rows with missed cases -> Running adjustment with reclaim... \n")
+    if (!"p" %in% colnames(df)) {
+      repeat {
+        p_input <- as.numeric(readline(prompt = "Enter the missing percentage (0 to 100): "))
+        if (p_input >= 0 && p_input <= 100 && !is.na(p_input)) {
+          df$p_missed <- p_input
+          p <- p_input
+          break
+        } else {
+          cat("Invalid percentage. Please enter a number between 0 to 100 \n")
+        }
+      }  
+    } else {
+      p <- df$p 
+    } 
+    adjusted_result_miss <- adjust_missed_asd(miss_data, p = p)
+    adjusted_result_name_miss <- paste0("adjusted_result_miss_asd_", p)
+    assign(adjusted_result_name_miss, adjusted_result_miss, envir = .GlobalEnv)
+  }
+  
+  # Merge back results from 2a and 2b
+  if (nrow(no_miss_data) > 0 && nrow(miss_data) > 0) {
+    adjusted_result <- bind_rows(adjusted_result_no_miss, adjusted_result_miss)
+    adjusted_result_name <- paste0("adjusted_result_asd_", p)
+    assign(adjusted_result_name, adjusted_result, envir = .GlobalEnv)
+    cat("The output dataset is: ", adjusted_result_name, "\n")
+  } else if (nrow(no_miss_data) > 0) {
+    cat("Only dataset without missed cases was found. \n")
+  } else if (nrow(miss_data) > 0) {
+    cat("Only dataset with missed cases was found. \n")
+  } else {
+    cat("No data to process.\n")
+  }
+}
+# Optional - Excel export for validation
+test_df <- master_function_asd(raw_data)
+export(test_df, "test_df.xlsx")
+
+
+
+# Function 2a_b: Epi adjustment for when no cases are missing from screened (n_positive_miss = 0) ####
+# For any condition, any prevalence
+# Input: Function 1's resulted df
+# Output: sens, spec, ppv, npv using user-defined prevalence
+
+adjust_no_missed_any_prev <-  function(df, prev){
+  df %>% 
+    mutate(expected = as.integer(n * prev)) %>% 
+    
+    mutate(difference = expected - (tp + fn_rep),
+           difference_multiplier = ifelse(difference > 0, 1, 
+                                          ifelse(difference < 0, 0, difference))) %>% 
+    
+    mutate(fn_calc = fn_rep + ifelse(difference > 0, difference, 0),
+           tn_calc = tn_rep - (difference * difference_multiplier)) %>% 
+    
+    
+    # Diagnostic accuracy - any prevalence
+    mutate(sens_calc = tp_rep / (tp_rep + fn_calc),
+           spec_calc = tn_calc / (tn_calc + fp_rep),
+           ppv_calc = tp_rep / (tp_rep + fp_rep),
+           npv_calc = tn_calc / (tn_calc + fn_calc)) %>% 
+    
+    mutate(across(contains("calc"), ~ round(., digits = 4))) 
+  
+}
+
 # Function 2b_b: Epi adjustment for when there are kids missed from screened (n_positive_miss != 0) ####
 # For any condition, any prevalence
 # Input: Function 1's resulted df
 # Output: sens, spec, ppv, npv using user-defined prevalence
 
-recalculated_reclaim_any_prev <- function(df, p, prev){
+adjust_missed_any_prev <- function(df, p, prev){
   df %>% 
     mutate(!!paste0("tp_reclaim_", p) := tp_rep + (p/100) * n_positive_miss,             
-           !!paste0("fp_reclaim_", p) := fp_rep + (1- (p/100)) * n_positive_miss) %>% 
+           !!paste0("fp_reclaim_", p) := fp_rep + ((1- (p/100)) * n_positive_miss)) %>% 
     
     mutate(!!paste0("expected_at_", p) := as.integer((n + n_positive_miss) * prev),
-           !!paste0("difference_at_", p) := !!sym(paste0("expected_at_", p)) - !!sym(paste0("tp_reclaim_", p)) + fn_rep,
-           !!paste0("difference_multiplier_", p) := ifelse(!!sym(paste0("difference_at_", p)) > 0, 1,
-                                                           ifelse(!!sym(paste0("difference_at_", p)) < 0, 0, !!sym(paste0("difference_at_", p))))) %>% 
+           !!paste0("difference_at_", p) := !!sym(paste0("expected_at_", p)) - (!!sym(paste0("tp_reclaim_", p)) + fn_rep),
+           !!paste0("difference_multiplier_", p) := ifelse(!!sym(paste0("difference_at_", p)) > 0, 1, 0)) %>%
     
     mutate(!!paste0("fn_calc_", p) := fn_rep + ifelse(!!sym(paste0("difference_at_", p)) > 0, !!sym(paste0("difference_at_", p)), 0),
            !!paste0("tn_calc_", p) := tn_rep + !!sym(paste0("difference_at_", p)) * !!sym(paste0("difference_multiplier_", p))) %>%    
@@ -377,43 +430,15 @@ recalculated_reclaim_any_prev <- function(df, p, prev){
     mutate(!!paste0("sens_calc_", p) := !!sym(paste0("tp_reclaim_", p)) / (!!sym(paste0("tp_reclaim_", p)) + !!sym(paste0("fn_calc_", p))), 
            !!paste0("spec_calc_", p) := !!sym(paste0("tn_calc_", p)) / (!!sym(paste0("tn_calc_", p)) + !!sym(paste0("fp_reclaim_", p))),
            !!paste0("ppv_calc_", p) := !!sym(paste0("tp_reclaim_", p)) / (!!sym(paste0("tp_reclaim_", p)) + !!sym(paste0("fp_reclaim_", p))),
-           !!paste0("npv_calc_", p) := !!sym(paste0("tn_calc_", p)) / (!!sym(paste0("tn_calc_", p)) + !!sym(paste0("fn_calc_", p))))
-  }
-
-
-# Wrapper (master) function for asd dataset ####
-# It will output a dataset, so just input datasets and p% and run
-master_function_asd <- function(df) {
-  cleaned_data <- recalculated_basic(df)
-  
-  if(any(cleaned_data$n_positive_miss == 0)){
-    print("Found no missed cases -> Output dataset doesn't have reclaim")
-    recalculated_result <- recalculated_no_reclaim(cleaned_data)
-    recalculated_result_name <- paste0("recalculated_result_no_miss")
-    assign(recalculated_result_name, recalculated_result, env = .GlobalEnv)
-  }
-  
-  else{
-    print("Found missed cases -> Output dataset will have reclaims")
+           !!paste0("npv_calc_", p) := !!sym(paste0("tn_calc_", p)) / (!!sym(paste0("tn_calc_", p)) + !!sym(paste0("fn_calc_", p)))) %>% 
     
-    if (!"p" %in% colnames(df)) {
-      p <- as.numeric(readline(prompt = "Enter the missing percentage: "))
-    }
-    else{
-      p <- df$p 
-    } 
-    
-    recalculated_result <- recalculated_reclaim(cleaned_data, p = p)
-    recalculated_result_name <- paste0("recalculated_result_", p)
-    assign(recalculated_result_name, recalculated_result, env = .GlobalEnv)
-  }
-  
+    mutate(across(contains("calc"), ~ round(., digits = 4))) 
 }
-
-master_function_asd(raw_slice)
 
 # Wrapper function for any condition, any prevalence ####
 # It will output a dataset, so just input dataset and p% and run
+# Condition list can be edited
+
 master_function_any <- function(df) {
   
   conditions <- c(
@@ -443,6 +468,7 @@ master_function_any <- function(df) {
     "SEAD - Separation Anxiety Disorder",
     "SOAD - Social Anxiety Disorder",
     "SPD - Schizoid Personality Disorder"
+    # Abbreviated name - Condition name"
   )
   # Start ####
   choice <- menu(conditions, title = "Select a condition: ")
@@ -456,15 +482,15 @@ master_function_any <- function(df) {
   # Check for prev in df
   if (!"prev" %in% colnames(df)) {
     repeat { 
-    prev_input <- as.numeric(readline(prompt = "Enter the condition's prevalence (0 to 1): "))
-    
-    if(prev_input >= 0 && prev_input <= 1 && !is.na(prev_input)) {
-      df$prev <-  prev_input
-      prev <- prev_input 
-      break
-    }
-    else{
-      cat("Invalid prevalence. Please enter a number between 0 to 1 \n")
+      prev_input <- as.numeric(readline(prompt = "Enter the condition's prevalence (0 to 1): "))
+      
+      if(prev_input >= 0 && prev_input <= 1 && !is.na(prev_input)) {
+        df$prev <-  prev_input
+        prev <- prev_input 
+        break
+      }
+      else{
+        cat("Invalid prevalence. Please enter a number between 0 to 1 \n")
       }
     }
   }
@@ -473,17 +499,20 @@ master_function_any <- function(df) {
   }
   # Function 1
   cleaned_data <- recalculated_missing_data(df)
+  
   # Divide into 2 datasets based on n_positive_miss
   no_miss_data <- subset(cleaned_data, n_positive_miss == 0)
   miss_data <- subset(cleaned_data, n_positive_miss != 0)
+  
   # Function 2a: Apply to rows with n_positive_miss == 0
   if (nrow(no_miss_data) > 0) {
     cat("Found rows with no missed cases -> Running step 2a... \n")
     
-    recalculated_result_no_miss <- recalculated_no_reclaim_any_prev(no_miss_data, prev = prev)
-    recalculated_result_no_miss_name <- paste0("recalculated_result_no_miss_", cond)
-    assign(recalculated_result_no_miss_name, recalculated_result_no_miss, envir = .GlobalEnv)
+    adjusted_result_no_miss <- adjust_no_missed_any_prev(no_miss_data, prev = prev)
+    adjusted_result_no_miss_name <- paste0("adjusted_result_no_miss_", cond)
+    assign(adjusted_result_no_miss_name, adjusted_result_no_miss, envir = .GlobalEnv)
   }
+  
   # Function 2b: Apply to rows with n_positive_miss != 0
   if (nrow(miss_data) > 0) {
     cat("Found rows with missed cases -> Running step 2b... \n")
@@ -504,16 +533,16 @@ master_function_any <- function(df) {
     else{
       p <- df$p 
     } 
-    recalculated_result_miss <- recalculated_reclaim_any_prev(miss_data, p = p, prev = prev)
-    recalculated_result_name_miss <- paste0("recalculated_result_miss_", cond, "_", p)
-    assign(recalculated_result_name_miss, recalculated_result_miss, envir = .GlobalEnv)
+    adjusted_result_miss <- adjust_missed_any_prev(miss_data, p = p, prev = prev)
+    adjusted_result_name_miss <- paste0("adjusted_result_miss_", cond, "_", p)
+    assign(adjusted_result_name_miss, adjusted_result_miss, envir = .GlobalEnv)
   }
   # Merge back results from 2a and 2b
   if (nrow(no_miss_data) > 0 && nrow(miss_data) > 0) {
-    recalculated_result <- bind_rows(recalculated_result_no_miss, recalculated_result_miss)
-    recalculated_result_name <- paste0("recalculated_result_", cond, "_", p)
-    assign(recalculated_result_name, recalculated_result, envir = .GlobalEnv)
-    cat("The output dataset is: ", recalculated_result_name, "\n")
+    adjusted_result <- bind_rows(adjusted_result_no_miss, adjusted_result_miss)
+    adjusted_result_name <- paste0("adjusted_result_", cond, "_", p)
+    assign(adjusted_result_name, adjusted_result, envir = .GlobalEnv)
+    cat("The output dataset is: ", adjusted_result_name, "\n")
   } 
   else if (nrow(no_miss_data) > 0) {
     cat("Only dataset without missed cases was found. \n")
@@ -526,10 +555,17 @@ master_function_any <- function(df) {
   }
 }
 
+
+# Making testing datasets ####
+raw_slice <- slice_head(raw_data, n = 10)
+raw_slice_0miss <- raw_slice %>% 
+  mutate(n_positive_miss = 0)
+
+
 # Testing ####
 master_function_any(raw_slice)
 master_function_any(raw_slice_0miss)
-master_function_any(raw_slice)
+
 
 
 
